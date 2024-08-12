@@ -11,14 +11,14 @@ my $port     = 6667;
 my $nick     = "KreatyveBot";
 my $ident    = "Anonymous";
 my $realname = "Anonymous";
-my $chan     = "#kreatyve";
-my $chan2    = "#kreatyve-dev";
+my $chan     = "#channel1";
+my $chan2    = "#channel2";
 my $pass     = "";
-my $su       = "plvicente";
-my $owners   = "plvicente";
+my $su       = "nickname";
+my $owners   = "nickname";
 
 # Donation URL
-my $donation_url = "https://ringscejs.gleentech.com/donate/";
+my $donation_url = "https://localhost";
 
 # Establish connection to IRC server
 my $irc = IO::Socket::INET->new(
