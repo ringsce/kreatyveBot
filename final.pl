@@ -169,7 +169,7 @@ while (my $in = <$irc>) {
     if ($in =~ /!restart/ && $in =~ /$su/) {
         print $irc "PRIVMSG $chan :Rehashing...\n";
         print $irc "QUIT\n";
-        system("perl bot.pl &");
+        system("perl final.pl &");
         last;
     }
 
