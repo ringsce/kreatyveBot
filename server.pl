@@ -5,8 +5,11 @@ use warnings;
 use IO::Socket::INET;
 use IO::Select;
 use Net::DNS;
+use IO::Socket::INET6;
+use IO::Socket::SSL;
 
 # Server Configuration
+my $use_ssl = 1;  # Set to 0 to disable SSL
 my $server_port = 6667;
 my $server_name = 'localhostd';
 my %channels;
@@ -16,12 +19,29 @@ my %clients;
 my $select = IO::Select->new();
 
 # Create a listening socket
-my $server_socket = IO::Socket::INET->new(
-    LocalPort => $server_port,
-    Type      => SOCK_STREAM,
-    Reuse     => 1,
-    Listen    => 10
-) or die "Couldn't open socket on port $server_port: $!";
+my $server_socket;
+
+if ($use_ssl) {
+    $server_socket = IO::Socket::SSL->new(
+        LocalPort     => $server_port,
+        Proto         => 'tcp',
+        Listen        => 10,
+        ReuseAddr     => 1,
+        SSL_cert_file => 'server-cert.pem',
+        SSL_key_file  => 'server-key.pem',
+        SSL_version   => 'TLSv1_2',
+        SSL_cipher_list => 'HIGH:!aNULL:!MD5',
+        Domain        => AF_INET6
+    ) or die "Couldn't open SSL socket on port $server_port: $!";
+} else {
+    $server_socket = IO::Socket::INET6->new(
+        LocalPort => $server_port,
+        Proto     => 'tcp',
+        Listen    => 10,
+        ReuseAddr => 1,
+        Domain    => AF_INET6
+    ) or die "Couldn't open socket on port $server_port: $!";
+}
 
 $select->add($server_socket);
 print "IRC Server started on port $server_port\n";
@@ -32,17 +52,23 @@ while (1) {
     foreach my $socket (@ready) {
         if ($socket == $server_socket) {
             my $client_socket = $server_socket->accept();
+            
+            if ($use_ssl && !$client_socket->isa("IO::Socket::SSL")) {
+                print "Failed SSL handshake with client.\n";
+                next;
+            }
+
             my $client_address = $client_socket->peerhost();
             my $client_port = $client_socket->peerport();
             
             print "Accepted new client from $client_address:$client_port\n";
             
             $clients{$client_socket} = {
-                socket => $client_socket,
-                address => $client_address,
-                port => $client_port,
-                nick => undef,
-                user => undef,
+                socket   => $client_socket,
+                address  => $client_address,
+                port     => $client_port,
+                nick     => undef,
+                user     => undef,
                 realname => undef,
                 channels => [],
             };
@@ -60,11 +86,10 @@ sub handle_client {
     
     while (my $line = <$client_socket>) {
         chomp $line;
-        
+
         # Print incoming command for debugging
         print "Received: $line\n";
         
-        # Handle different IRC commands
         if ($line =~ /^NICK\s+(\S+)/) {
             my $nick = $1;
             $client_info->{nick} = $nick;
@@ -87,30 +112,28 @@ sub handle_client {
         } elsif ($line =~ /^PRIVMSG\s+(\S+)\s+:(.*)/) {
             my $target = $1;
             my $message = $2;
-            foreach my $client (keys %clients) {
-                next if $client eq $client_socket;
-                if (exists $channels{$target}->{$client}) {
-                    #print $clients{$client}->{socket} ":$client_info->{nick}!$client_info->{user}\@$client_info->{address} PRIVMSG $target :$message\n";
+            foreach my $client_socket (keys %clients) {
+                next if $client_socket eq $client_socket;
+                if (exists $channels{$target}->{$client_socket}) {
+                    #print $clients{$client_socket}->{socket} ":$client_info->{nick}!$client_info->{user}\@$client_info->{address} PRIVMSG $target :$message\n";
                 }
             }
         } elsif ($line =~ /^TOPIC\s+(#\S+)\s+:(.*)/) {
             my $channel = $1;
             my $topic = $2;
             $channels{$channel}->{topic} = $topic;
-            foreach my $client (keys %clients) {
-                if (exists $channels{$channel}->{$client}) {
-                    #print $clients{$client}->{socket} ":$server_name TOPIC $channel :$topic\n";
+            foreach my $client_socket (keys %clients) {
+                if (exists $channels{$channel}->{$client_socket}) {
+                    #print $clients{$client_socket}->{socket} ":$server_name TOPIC $channel :$topic\n";
                 }
             }
-        } elsif ($line =~ /^PONG\s+(.*)/) {
-            print $client_socket "PONG $1\n";
         } elsif ($line =~ /^PING\s+(.*)/) {
             print $client_socket "PONG $1\n";
         } elsif ($line =~ /^WHOIS\s+(\S+)/) {
             my $nick = $1;
-            foreach my $client (keys %clients) {
-                if ($clients{$client}->{nick} eq $nick) {
-                    print $client_socket ":$server_name 311 $clients{$client}->{nick} $nick $clients{$client}->{user} $clients{$client}->{address} * :$clients{$client}->{realname}\n";
+            foreach my $client_socket (keys %clients) {
+                if ($clients{$client_socket}->{nick} eq $nick) {
+                    #print $client_socket ":$server_name 311 $clients{$client_socket}->{nick} $nick $clients{$client_socket}->{user} $clients{$client_socket}->{address} * :$clients{$client_socket}->{realname}\n";
                     last;
                 }
             }
